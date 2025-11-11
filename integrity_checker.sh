@@ -26,7 +26,7 @@ BAM_EOF_BYTES=32768    # bytes read from end of BAM for EOF validation
 VCF_RECORDS=10000      # VCF/BCF records parsed
 
 ok()   { echo "[OK] $1 $2 - $3"; }
-warn() { echo "[WARNING] $1 $2 - $3"; }
+fail() { echo "[FAIL] $1 $2 - $3"; }
 err()  { echo "[ERROR] $1 $2 - $3"; exit 1; }
 
 ##############################################################################
@@ -43,7 +43,7 @@ check_fastq() {
 
     if ! command -v fastQValidator >/dev/null 2>&1; then
         rm -f "$tmp"
-        warn "$type" "$f" "fastQValidator not found; FASTQ check skipped"
+        fail "$type" "$f" "fastQValidator not found; FASTQ check skipped"
         return
     fi
 
@@ -63,7 +63,7 @@ check_bam() {
     local f="$1" type="BAM"
 
     if ! command -v samtools >/dev/null 2>&1; then
-        warn "$type" "$f" "samtools not found; BAM check skipped"
+        fail "$type" "$f" "samtools not found; BAM check skipped"
         return
     fi
 
@@ -91,7 +91,7 @@ check_cram() {
     local f="$1" type="CRAM"
 
     if ! command -v samtools >/dev/null 2>&1; then
-        warn "$type" "$f" "samtools not found; CRAM check skipped"
+        fail "$type" "$f" "samtools not found; CRAM check skipped"
         return
     fi
 
@@ -115,7 +115,7 @@ check_vcf() {
     local f="$1" type="VCF/BCF"
 
     if ! command -v bcftools >/dev/null 2>&1; then
-        warn "$type" "$f" "bcftools not found; VCF/BCF check skipped"
+        fail "$type" "$f" "bcftools not found; VCF/BCF check skipped"
         return
     fi
 
@@ -131,7 +131,7 @@ check_vcf() {
 ##############################################################################
 for file in "$@"; do
     if [[ ! -f "$file" ]]; then
-        warn "FILE" "$file" "not found; skipping"
+        fail "FILE" "$file" "not found; skipping"
         continue
     fi
 
@@ -145,7 +145,7 @@ for file in "$@"; do
         *.vcf|*.vcf.gz|*.bcf|*.bcf.gz|*.vcf.bz2|*.bcf.bz2)
             check_vcf "$file" ;;
         *)
-            warn "FILE" "$file" "unsupported extension; skipping" ;;
+            fail "FILE" "$file" "unsupported extension; skipping" ;;
     esac
 done
 
