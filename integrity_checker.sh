@@ -13,6 +13,7 @@
 #             MD5 (M5) tags (missing M5 ⇒ ERROR)
 #   • VCF   : parse the header plus the first 10 000 variant records with
 #             bcftools head (fatal parse ⇒ ERROR)
+#           : verify that variants are sorted according to HTSlib rules
 #
 # Exit status
 #   • Any ERROR terminates execution immediately (set -e).
@@ -129,71 +130,94 @@ check_vcf() {
 }
 
 check_variant_sorted() {
-    local in="$1"
+    local f="$1" type="VCF/BCF"
 
-    if [[ -z "$in" ]]; then
-        echo "Usage: check_variant_sorted <file.vcf[.gz]|file.bcf>" >&2
-        return 2
+    if [[ -z "$f" ]]; then
+        fail "$type" "$f" "no file given; sortedness check skipped"
+        return
     fi
 
-    # Choose how to read the file:
-    # - BCF  -> bcftools view -Ov (requires bcftools installed)
-    # - .gz  -> zcat
-    # - else -> cat
-    if [[ "$in" == *.bcf || "$in" == *.bcf.gz || "$in" == *.bcf.bz2 ]]; then
-        # BCF: convert to VCF stream
-        bcftools view -Ov "$in" 2>/dev/null
-    elif [[ "$in" == *vcf.gz ]]; then
-        zcat "$in" 2>/dev/null
-    elif [[ "$in" == *vcf.bz2 ]]; then
-        bzcat "$in" 2>/dev/null
-    else
-        cat "$in"
-    fi | awk -F'\t' '
-        BEGIN {
-            last_tid = -1
-            last_pos = -1
-            nctg = 0
-        }
+    # If BCF-like, we need bcftools to convert to VCF text
+    if [[ "$f" == *.bcf || "$f" == *.bcf.gz || "$f" == *.bcf.bz2 ]]; then
+        if ! command -v bcftools >/dev/null 2>&1; then
+            fail "$type" "$f" "bcftools not found; sortedness check skipped for BCF"
+            return
+        fi
+    fi
 
-        # Collect contigs from header
-        /^##contig=/ {
-            if (match($0, /ID=([^,>]+)/, a)) {
-                cid = a[1]
-                if (!(cid in tid)) {
-                    tid[cid] = nctg
+    # Run the sortedness check; capture first offending locus if unsorted.
+    # awk prints "chr:pos" and exits 1 on the first out-of-order record,
+    # or prints nothing and exits 0 if everything is sorted.
+    local unsorted_at=""
+    if ! unsorted_at=$(
+        if [[ "$f" == *.bcf || "$f" == *.bcf.gz || "$f" == *.bcf.bz2 ]]; then
+            # Any BCF (compressed or not) → VCF stream via bcftools
+            bcftools view -Ov "$f" 2>/dev/null
+        elif [[ "$f" == *.vcf.bz2 ]]; then
+            bzcat "$f" 2>/dev/null
+        elif [[ "$f" == *.vcf.gz ]]; then
+            zcat "$f" 2>/dev/null
+        else
+            cat "$f"
+        fi | awk -F'\t' '
+            BEGIN {
+                last_tid = -1
+                last_pos = -1
+                nctg = 0
+            }
+
+            # Collect contigs from header
+            /^##contig=/ {
+                if (match($0, /ID=([^,>]+)/, a)) {
+                    cid = a[1]
+                    if (!(cid in tid)) {
+                        tid[cid] = nctg
+                        nctg++
+                    }
+                }
+                next
+            }
+
+            # Skip other header lines
+            /^#/ { next }
+
+            # Variant lines
+            {
+                chrom = $1
+                pos   = $2 + 0
+
+                # If chrom not in header, append at end
+                if (!(chrom in tid)) {
+                    tid[chrom] = nctg
                     nctg++
                 }
+                t = tid[chrom]
+
+                # Same logic as HTSlib: (tid, pos) must not go backwards
+                if (t < last_tid || (t == last_tid && pos < last_pos)) {
+                    # Print first offending locus to stdout and exit non-zero
+                    printf("%s:%d\n", chrom, pos)
+                    exit 1
+                }
+
+                last_tid = t
+                last_pos = pos
             }
-            next
-        }
-
-        # Skip other header lines
-        /^#/ { next }
-
-        # Variant lines
-        {
-            chrom = $1
-            pos   = $2 + 0
-
-            # If chrom not in header, append at end
-            if (!(chrom in tid)) {
-                tid[chrom] = nctg
-                nctg++
-            }
-            t = tid[chrom]
-
-            # Same logic as HTSlib: (tid, pos) must not go backwards
-            if (t < last_tid || (t == last_tid && pos < last_pos)) {
-                printf("UNSORTED at %s:%d\n", chrom, pos) > "/dev/stderr"
-                exit 1
-            }
-
-            last_tid = t
-            last_pos = pos
-        }
-    '
+        '
+    ); then
+        # Non-zero exit from awk / pipeline
+        if [[ -n "$unsorted_at" ]]; then
+            err "$type" "$f" "variants not sorted by contig/POS (first offending locus: $unsorted_at)"
+        else
+            err "$type" "$f" "sortedness scan failed (parse or I/O error)"
+        fi
+    else
+        ok "$type" "$f" "variants sorted by contig/POS"
+    fi
 }
+
+
+
 
 
 ##############################################################################
