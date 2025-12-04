@@ -77,7 +77,8 @@ check_bam() {
     fi
 
     # Sortedness by coordinate
-    if samtools view -H "$f" | grep "@HD" | grep -o "SO:[^[:space:]]*" | cut -d: -f2 == "coordinate"; then
+    sorted=$(samtools view -H "$f" | grep "@HD" | grep -o "SO:[^[:space:]]*" | cut -d: -f2)
+    if [[ "$sorted" == "coordinate" ]] ; then
         ok "$type" "$f" "header OK; @CO lines present"
     else
         err "$type" "$f" "BAM not sorted by coordinate"
