@@ -4,7 +4,7 @@
 # Purpose:
 #   Perform lightweight integrity checks on common NGS file types before they
 #   enter downstream pipelines. Exactly ONE line per file is printed:
-#     [OK] / [WARNING] / [ERROR] <TYPE> <PATH> - <message>
+#     [OK] / [FAIL] / [ERROR] <TYPE> <PATH> - <message>
 #
 # Checks implemented
 #   • FASTQ : extract the first 40 000 lines and run fastQValidator
@@ -16,8 +16,8 @@
 #           : verify that VCF/BCF files are sorted according to HTSlib rules
 #
 # Exit status
-#   • Any ERROR terminates execution immediately (set -e).
-#   • WARNING is non-fatal (e.g., missing helper tool); processing continues.
+#   • Captures all ERRORS and returns them.
+#   • FAIL is non-fatal (e.g., missing helper tool); processing continues. Will be captured by dev team and logged in db
 #   • OK indicates the file passed the implemented checks.
 # ---------------------------------------------------------------------------
 
@@ -58,7 +58,7 @@ end_file() {
 FASTQ_LINES=40000      # FASTQ lines inspected
 BAM_EOF_BYTES=32768    # bytes read from end of BAM for EOF validation
 VCF_RECORDS=10000      # VCF/BCF records parsed
-HUM_REF_GENOME=("hg16" "hg17" "hg18" "GRCh37" "GRCh38" "T2T")  # human reference genome names
+
 
 
 ##############################################################################
@@ -72,34 +72,50 @@ check_fastq() {
     tmp=$(mktemp)
 
     if [[ "$f" == *.gz ]]; then
-        if ! gunzip -c "$f" >/dev/null | head -n "$FASTQ_LINES" > "$tmp"; then
+        if ! gunzip -c "$f" 2>/dev/null | head -n "$FASTQ_LINES" > "$tmp"; then
             err "$type" "$f" "failed to read/decompress FASTQ"
             rm -f "$tmp"
             end_file; return $?
         fi
     else
         if ! head -n "$FASTQ_LINES" "$f" > "$tmp" 2>/dev/null; then
-        err "$type" "$f" "failed to read FASTQ"
-        rm -f "$tmp"
-        end_file; return $?
+            err "$type" "$f" "failed to read FASTQ"
+            rm -f "$tmp"
+            end_file; return $?
+        fi
     fi
-  fi
 
-    #validator check 
+    # validator check
     if ! command -v fastQValidator >/dev/null 2>&1; then
         rm -f "$tmp"
-        fail "$type" "$f" "fastQValidator not found; FASTQ check skipped"
+        fail "$type" "$f" "fastQValidator not found"
         end_file; return $?
     fi
 
-    if fastQValidator --file "$tmp" --maxErrors 1 --disableSeqIDCheck >/dev/null 2>&1; then
-        ok "$type" "$f" "validator passed on first ${FASTQ_LINES} lines"
-    else       
-        err "$type" "$f" "fastQValidator reported format problems"
-    fi
+    local vout rc errs
+    vout=$(fastQValidator --file "$tmp" --disableSeqIDCheck 2>&1)
+    rc=$?
 
-    rm -f "$tmp"
-    end_file; return $?
+    if (( rc == 0 )); then
+        ok "$type" "$f" "validator passed"
+        rm -f "$tmp"
+        end_file; return $?
+    else
+        errs=$(
+            printf '%s\n' "$vout" \
+            | grep '^ERROR on Line ' \
+            | tr '\n' '; ' \
+            | sed 's/; $//'
+        )
+
+        if [[ -z "$errs" ]]; then
+            errs="fastQValidator failed with no detailed ERROR lines"
+        fi
+
+        err "$type" "$f" "$errs"
+        rm -f "$tmp"
+        end_file; return $?
+    fi
 }
 
 ##############################################################################
@@ -138,22 +154,24 @@ check_bam() {
         err "$type" "$f" "BAM header missing or unreadable"
         rm -f "$hdr_tmp"
         end_file
-        return $?
+        return $?      
     fi
     
     if ! grep -q '^@SQ' "$hdr_tmp"; then
         err "$type" "$f" "BAM header missing @SQ lines"
         rm -f "$hdr_tmp"
         end_file
-        return $?
+        return $?      
     fi
+    
+    ok "$type" "$f" "header readable; @SQ present"
     
     # Sortedness by coordinate
     sorted=$(grep -m1 '^@HD' "$hdr_tmp" | grep -oE "SO:[^[:space:]]*" | cut -d: -f2)
     if [[ "$sorted" == "coordinate" ]] ; then
         ok "$type" "$f" "BAM file sorted by coordinate"
     else
-        err "$type" "$f" "BAM not sorted by coordinate"
+        err "$type" "$f" "BAM not sorted by coordinate (SO:${sorted:-missing})"
     fi
 
     rm -f "$hdr_tmp"
@@ -168,10 +186,12 @@ check_bam() {
         | awk -F'Species detected:[[:space:]]*' '/Species detected:/ {print $2}' \
         | xargs)
 
-    if [[ "$species" == "Homo sapiens" ]]; then
-        ok "$type" "$f" "BAM file is human"
+    if [[ -z "$species" ]]; then
+        err "$type" "$f" "refgenDetector produced no species result"
+    elif [[ "$species" == "Homo sapiens" ]]; then
+        ok "$type" "$f" "species: Homo sapiens"
     else
-        err "$type" "$f" "BAM file is not human"
+        err "$type" "$f" "species is not human ($species)"
     fi
 
     end_file; return $?
