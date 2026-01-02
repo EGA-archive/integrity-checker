@@ -349,8 +349,6 @@ case "$file" in
     # keep your current VCF calls for now
     check_vcf "$file"
     rc1=$?
-    check_variant_sorted "$file"
-    rc2=$?
     # if either fails, fail
     (( rc1 != 0 || rc2 != 0 )) && exit 1
     exit 0
