@@ -286,8 +286,17 @@ check_vcf() {
     fi
 
     local vout rc errs
-    vout=$(VCFX_validator -i "$f" 2>&1)
-    rc=$?
+
+    if [[ "$f" == *.gz ]]; then
+        vout=$(zcat "$f" | VCFX_validator 2>&1)
+        rc=$?
+    elif [[ "$f" == *.bz2 ]]; then
+        vout=$(bzcat "$f" | VCFX_validator 2>&1)
+        rc=$?
+    else
+        vout=$(VCFX_validator -i "$f" 2>&1)
+        rc=$?
+    fi
 
     # PASS condition: explicit status line
     if printf '%s\n' "$vout" | grep -q '^Status:[[:space:]]*PASSED'; then
@@ -305,7 +314,6 @@ check_vcf() {
 
     if [[ -z "$errs" ]]; then
         # fallback: if validator failed but didn't print "Error:" lines
-        # include first line (keeps one-line policy)
         errs=$(printf '%s\n' "$vout" | head -n 1)
         [[ -z "$errs" ]] && errs="VCFX_validator failed (rc=$rc) with no output"
     fi
