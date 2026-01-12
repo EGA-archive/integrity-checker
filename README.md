@@ -15,7 +15,7 @@ This Bash script provides lightweight and rapid integrity checks for common next
    * **FASTQ** → inspect first 40 000 lines → `fastQValidator`
    * **BAM** → header sanity check + EOF signature
    * **CRAM** → header sanity check + MD5 presence
-   * **VCF/BCF** → header + first 10 000 records via `bcftools`
+   * **VCF/BCF** → Checks file structure. Header format and compliance of VCF 4.x specification via VCFX_validator 
   
 Each file produces a single summary line of output.
 
