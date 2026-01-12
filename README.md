@@ -106,6 +106,7 @@ A pass indicates that the *sampled portion* is valid; it does **not** guarantee 
 
 * Only partial validation for speed, deep‑file corruption may go unnoticed.
 * Default thresholds can be adjusted in the script.
+* For VCF/BCF the only limitations of this script are those inherent to the `vcfx_validator` tool.
 * Validates only selected sections of the file:
   ```text
    *40k FASTQ lines
