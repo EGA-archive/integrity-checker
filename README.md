@@ -110,4 +110,3 @@ A pass indicates that the *sampled portion* is valid; it does **not** guarantee 
   ```text
    *40k FASTQ lines
    *500 BAM/CRAM header lines
-```text
