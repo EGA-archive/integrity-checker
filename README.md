@@ -105,10 +105,9 @@ A pass indicates that the *sampled portion* is valid; it does **not** guarantee 
 ##  Limitations
 
 * Only partial validation for speed, deep‑file corruption may go unnoticed.
-* Default thresholds can be adjusted in the script:
+* Default thresholds can be adjusted in the script.
 * Validates only selected sections of the file:
   ```text
    *40k FASTQ lines
    *500 BAM/CRAM header lines
-   *10k VCF records
 ```text
